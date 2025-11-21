@@ -88,13 +88,13 @@ jobs:
             -a "sha=${{ github.sha }}" \
             "${IMAGE}"
 
-            # Step 8: Attest the provenance
-            - name: Generate and sign provenance
-              uses: actions/attest-build-provenance@v1
-              with:
-                subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-                subject-digest: ${{ steps.build-and-push.outputs.digest }}
-                push-to-registry: true
+      # Step 8: Attest the provenance
+      - name: Generate and sign provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          push-to-registry: true
 
       # Step 9: Verify our own signature (sanity check)
       - name: Verify image signature
