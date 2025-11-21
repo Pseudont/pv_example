@@ -75,32 +75,23 @@ jobs:
       - name: Sign container image
         env:
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          echo "Signing image with digest: ${DIGEST}"
-          images=""
-          for tag in ${TAGS}; do
-            images+="${tag}@${DIGEST} "
-          done
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+          echo "Signing: ${IMAGE}"
           
-          # Sign each image individually to avoid annotation parsing issues
-          for image in ${images}; do
-            echo "Signing: ${image}"
-            cosign sign --yes \
-              -a repo="${{ github.repository }}" \
-              -a workflow="${{ github.workflow }}" \
-              -a ref="${{ github.ref }}" \
-              -a commit="${{ github.sha }}" \
-              "${image}"
-          done
+          cosign sign --yes \
+            -a "repo=${{ github.repository }}" \
+            -a "ref=${{ github.ref }}" \
+            -a "sha=${{ github.sha }}" \
+            "${IMAGE}"
 
-      # Step 8: Attest the provenance
-      - name: Generate and sign provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build-and-push.outputs.digest }}
-          push-to-registry: true
+            # Step 8: Attest the provenance
+            - name: Generate and sign provenance
+              uses: actions/attest-build-provenance@v1
+              with:
+                subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                subject-digest: ${{ steps.build-and-push.outputs.digest }}
+                push-to-registry: true
 
       # Step 9: Verify our own signature (sanity check)
       - name: Verify image signature
