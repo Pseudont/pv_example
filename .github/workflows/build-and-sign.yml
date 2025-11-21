@@ -11,7 +11,6 @@ permissions:
   contents: read
   packages: write
   id-token: write  # Required for Sigstore keyless signing
-  attestations: write  # Required for provenance generation
 
 env:
   REGISTRY: ghcr.io
@@ -88,13 +87,54 @@ jobs:
             -a "sha=${{ github.sha }}" \
             "${IMAGE}"
 
-      # Step 8: Attest the provenance
-      - name: Generate and sign provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build-and-push.outputs.digest }}
-          push-to-registry: true
+      # Step 8: Attest SLSA provenance with cosign
+      - name: Generate and attest provenance
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+
+          # Generate SLSA provenance predicate
+          cat > provenance.json << EOF
+          {
+            "buildType": "https://github.com/actions/runner",
+            "builder": {
+              "id": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            },
+            "invocation": {
+              "configSource": {
+                "uri": "git+https://github.com/${{ github.repository }}@${{ github.ref }}",
+                "digest": {
+                  "sha1": "${{ github.sha }}"
+                },
+                "entryPoint": ".github/workflows/build-and-sign.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${{ github.run_id }}",
+              "buildStartedOn": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "completeness": {
+                "parameters": true,
+                "environment": true,
+                "materials": true
+              }
+            },
+            "materials": [
+              {
+                "uri": "git+https://github.com/${{ github.repository }}",
+                "digest": {
+                  "sha1": "${{ github.sha }}"
+                }
+              }
+            ]
+          }
+          EOF
+
+          # Attest the provenance
+          cosign attest --yes \
+            --predicate provenance.json \
+            --type slsaprovenance \
+            "${IMAGE}"
 
       # Step 9: Verify our own signature (sanity check)
       - name: Verify image signature
