@@ -2,9 +2,9 @@ name: Build, Sign, and Deploy with Provenance
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 # Critical: These permissions enable OIDC token generation for keyless signing
 permissions:
