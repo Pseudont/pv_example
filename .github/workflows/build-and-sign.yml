@@ -83,13 +83,16 @@ jobs:
             images+="${tag}@${DIGEST} "
           done
           
-          # Sign using GitHub OIDC token (keyless)
-          cosign sign --yes \
-            -a "repo=${{ github.repository }}" \
-            -a "workflow=${{ github.workflow }}" \
-            -a "ref=${{ github.ref }}" \
-            -a "commit=${{ github.sha }}" \
-            ${images}
+          # Sign each image individually to avoid annotation parsing issues
+          for image in ${images}; do
+            echo "Signing: ${image}"
+            cosign sign --yes \
+              -a repo="${{ github.repository }}" \
+              -a workflow="${{ github.workflow }}" \
+              -a ref="${{ github.ref }}" \
+              -a commit="${{ github.sha }}" \
+              "${image}"
+          done
 
       # Step 8: Attest the provenance
       - name: Generate and sign provenance
