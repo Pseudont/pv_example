@@ -7,17 +7,17 @@ and step pubkeys to reference it.
 """
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
 
 try:
-    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
     from cryptography.hazmat.backends import default_backend
+    from securesystemslib.signer import CryptoSigner
 except ImportError as e:
     print(f"Error: Required module not found: {e}", file=sys.stderr)
-    print("Install with: pip install cryptography", file=sys.stderr)
+    print("Install with: pip install cryptography securesystemslib", file=sys.stderr)
     sys.exit(1)
 
 
@@ -29,29 +29,36 @@ def update_layout_keys(layout_path: Path, public_key_path: Path) -> None:
         layout_path: Path to the layout JSON file
         public_key_path: Path to the public key PEM file
     """
-    # Load the public key
+    # We need the private key to create a CryptoSigner to get the correct keyid
+    # The public key path should be <name>.pub, so private key is <name>
+    private_key_path = public_key_path.with_suffix('')
+
     try:
-        pem_data = public_key_path.read_bytes()
-        pub_key_obj = load_pem_public_key(pem_data, backend=default_backend())
-        pem_str = pem_data.decode('utf-8')
-    except FileNotFoundError:
-        print(f"Error: Public key not found: {public_key_path}", file=sys.stderr)
+        # Load private key to create CryptoSigner (needed for correct keyid)
+        with open(private_key_path, 'rb') as f:
+            private_pem = f.read()
+        private_key = load_pem_private_key(private_pem, password=None, backend=default_backend())
+
+        # Create CryptoSigner to get the keyid that in-toto will use
+        signer = CryptoSigner(private_key)
+
+        # Get the public key dict from the signer
+        pub_key_dict = signer.public_key.to_dict()
+        keyid = signer.public_key.keyid
+
+        # Add keyid to the dict (it's not included in to_dict())
+        pub_key = {
+            'keyid': keyid,
+            **pub_key_dict
+        }
+
+    except FileNotFoundError as e:
+        print(f"Error: Key file not found: {e}", file=sys.stderr)
+        print(f"Note: This script needs both {private_key_path.name} and {public_key_path.name}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Error: Failed to load public key: {e}", file=sys.stderr)
+        print(f"Error: Failed to load key: {e}", file=sys.stderr)
         sys.exit(1)
-
-    # Generate keyid (sha256 hash of public key)
-    keyid = hashlib.sha256(pem_data).hexdigest()
-
-    # Create public key dict in securesystemslib format (v1.0+ format)
-    # The key dict must include the keyid field
-    pub_key = {
-        'keyid': keyid,
-        'keytype': 'rsa',
-        'scheme': 'rsassa-pss-sha256',
-        'keyval': {'public': pem_str}
-    }
 
     # Load the layout
     try:
