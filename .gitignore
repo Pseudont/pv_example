@@ -24,3 +24,4 @@ provenance.json
 
 # Backups
 *.bak
+in-toto-layout.json.bak

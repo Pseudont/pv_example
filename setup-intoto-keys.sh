@@ -4,80 +4,54 @@ set -euo pipefail
 # in-toto Layout Key Generation and Signing Script
 # This script generates RSA keys and signs the in-toto layout
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "=== in-toto Layout Setup ==="
 
-# Check if in-toto is installed
-if ! command -v in-toto-sign &> /dev/null; then
-    echo "Installing in-toto..."
-    python3 -m pip install --user in-toto || pip install --user in-toto || pip3 install --user in-toto
+# Check if required Python packages are installed
+if ! python3 -c "import in_toto, cryptography" 2>/dev/null; then
+    echo "Installing required packages..."
+    python3 -m pip install --user in-toto cryptography securesystemslib || \
+    pip install --user in-toto cryptography securesystemslib || \
+    pip3 install --user in-toto cryptography securesystemslib
 fi
 
 # Generate layout owner keys if they don't exist
 if [ ! -f "layout-owner-key" ] || [ ! -f "layout-owner-key.pub" ]; then
     echo "Generating layout owner keys..."
-    python3 << 'EOF'
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
-import json
-import hashlib
-
-# Generate RSA key pair
-private_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-    backend=default_backend()
-)
-
-# Serialize private key in PEM format
-pem_private = private_key.private_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PrivateFormat.PKCS8,
-    encryption_algorithm=serialization.NoEncryption()
-)
-
-# Serialize public key
-public_key = private_key.public_key()
-pem_public = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo
-)
-
-# Write keys to files (in-toto format expects no .pem extension for signing)
-with open('layout-owner-key', 'wb') as f:
-    f.write(pem_private)
-
-with open('layout-owner-key.pub', 'wb') as f:
-    f.write(pem_public)
-
-print('✓ Keys generated successfully')
-EOF
-
-    chmod 600 layout-owner-key
-    chmod 644 layout-owner-key.pub
+    "${SCRIPT_DIR}/scripts/generate-intoto-key.py" -k layout-owner-key
+    echo ""
 else
     echo "✓ Layout owner keys already exist"
 fi
 
-# Sign the layout
+# Update layout with public key and sign it
 if [ -f "in-toto-layout.json" ]; then
-    echo "Signing in-toto layout..."
-
     # Create backup of original layout
-    cp in-toto-layout.json in-toto-layout.json.bak
+    if [ ! -f "in-toto-layout.json.bak" ]; then
+        cp in-toto-layout.json in-toto-layout.json.bak
+        echo "✓ Created backup: in-toto-layout.json.bak"
+    fi
 
-    # Sign the layout using in-toto-sign
-    in-toto-sign -f in-toto-layout.json -k layout-owner-key
+    echo "Updating layout with public key..."
+    "${SCRIPT_DIR}/scripts/update-layout-keys.py" \
+        -l in-toto-layout.json \
+        -k layout-owner-key.pub
 
-    echo "✓ Layout signed successfully"
+    echo "Signing in-toto layout..."
+    "${SCRIPT_DIR}/scripts/sign-layout.py" \
+        -l in-toto-layout.json \
+        -k layout-owner-key
+
     echo ""
-    echo "Files created:"
-    echo "  - layout-owner-key (private key - keep secure!)"
-    echo "  - layout-owner-key.pub (public key - use for verification)"
-    echo "  - in-toto-layout.json (signed layout)"
+    echo "Setup complete! Files:"
+    echo "  ✓ layout-owner-key (private key - keep secure!)"
+    echo "  ✓ layout-owner-key.pub (public key - use for verification)"
+    echo "  ✓ in-toto-layout.json (signed layout)"
     echo ""
-    echo "IMPORTANT: Add layout-owner-key to .gitignore (private key should NOT be committed)"
-    echo "           The public key (layout-owner-key.pub) can be committed for verification"
+    echo "IMPORTANT:"
+    echo "  - NEVER commit 'layout-owner-key' to version control"
+    echo "  - Commit 'layout-owner-key.pub' and signed 'in-toto-layout.json'"
 else
     echo "Error: in-toto-layout.json not found"
     exit 1

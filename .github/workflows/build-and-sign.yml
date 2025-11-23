@@ -35,103 +35,17 @@ jobs:
       # Generate in-toto signing key (ephemeral for PoC)
       - name: Generate in-toto key
         run: |
-          python3 << 'PYEOF'
-          from securesystemslib.signer import CryptoSigner
-          from cryptography.hazmat.primitives.asymmetric import rsa
-          from cryptography.hazmat.primitives import serialization
-          from cryptography.hazmat.backends import default_backend
-          import json
+          chmod +x scripts/*.py
+          ./scripts/generate-intoto-key.py -k in-toto-key
+          # Create copies for verify script compatibility
+          cp in-toto-key layout-owner-key
+          cp in-toto-key.pub layout-owner-key.pub
 
-          # Generate RSA key pair using cryptography
-          private_key = rsa.generate_private_key(
-              public_exponent=65537,
-              key_size=2048,
-              backend=default_backend()
-          )
-
-          # Serialize private key to PEM
-          pem_private = private_key.private_bytes(
-              encoding=serialization.Encoding.PEM,
-              format=serialization.PrivateFormat.TraditionalOpenSSL,
-              encryption_algorithm=serialization.NoEncryption()
-          )
-
-          # Serialize public key to PEM
-          public_key = private_key.public_key()
-          pem_public = public_key.public_bytes(
-              encoding=serialization.Encoding.PEM,
-              format=serialization.PublicFormat.SubjectPublicKeyInfo
-          )
-
-          # Save keys in PEM format (use consistent naming with verify script)
-          with open('in-toto-key', 'wb') as f:
-              f.write(pem_private)
-
-          with open('in-toto-key.pub', 'wb') as f:
-              f.write(pem_public)
-
-          # Also save as layout-owner-key for verify script compatibility
-          with open('layout-owner-key', 'wb') as f:
-              f.write(pem_private)
-
-          with open('layout-owner-key.pub', 'wb') as f:
-              f.write(pem_public)
-
-          print("Generated RSA key pair")
-          PYEOF
-
-      # Update layout with generated key
-      - name: Update in-toto layout with key
+      # Update layout with generated key and sign it
+      - name: Update and sign in-toto layout
         run: |
-          python3 << 'PYEOF'
-          import json
-          from cryptography.hazmat.primitives import serialization
-          from cryptography.hazmat.backends import default_backend
-          import hashlib
-
-          # Read the public key PEM
-          with open('in-toto-key.pub', 'rb') as f:
-              pem_data = f.read()
-
-          # Load public key
-          from cryptography.hazmat.primitives.serialization import load_pem_public_key
-          pub_key_obj = load_pem_public_key(pem_data, backend=default_backend())
-
-          # Export to PEM format for keyid calculation
-          pem_str = pem_data.decode('utf-8')
-
-          # Generate keyid (sha256 hash of public key)
-          keyid = hashlib.sha256(pem_data).hexdigest()
-
-          # Create public key dict in securesystemslib format
-          pub_key = {
-              'keyid': keyid,
-              'keyid_hash_algorithms': ['sha256', 'sha512'],
-              'keyval': {'public': pem_str},
-              'scheme': 'rsa-pkcs1v15-sha256'
-          }
-
-          # Read the layout
-          with open('in-toto-layout.json', 'r') as f:
-              layout = json.load(f)
-
-          # Add key to layout and update step pubkeys
-          layout['keys'] = {keyid: pub_key}
-          for step in layout['steps']:
-              step['pubkeys'] = [keyid]
-
-          # Write updated layout
-          with open('in-toto-layout.json', 'w') as f:
-              json.dump(layout, f, indent=2)
-
-          print("Layout updated with key:", keyid)
-          PYEOF
-
-      # Sign the layout
-      - name: Sign in-toto layout
-        run: |
-          in-toto-sign -f in-toto-layout.json -k in-toto-key
-          echo "Layout signed successfully"
+          ./scripts/update-layout-keys.py -l in-toto-layout.json -k in-toto-key.pub
+          ./scripts/sign-layout.py -l in-toto-layout.json -k in-toto-key
 
       # Generate in-toto link metadata for checkout step
       - name: Record checkout step
