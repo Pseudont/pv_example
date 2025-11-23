@@ -32,7 +32,6 @@ done
 echo "Verifying supply chain layout..."
 in-toto-verify \
     --layout in-toto-layout.json \
-    --layout-keys "" \
     --link-dir ${LINKS_DIR}
 
 if [ $? -eq 0 ]; then

@@ -30,13 +30,67 @@ jobs:
 
       # Install in-toto
       - name: Install in-toto
-        run: pip install in-toto
+        run: pip install in-toto securesystemslib
+
+      # Generate in-toto signing key (ephemeral for PoC)
+      - name: Generate in-toto key
+        run: |
+          python3 << 'PYEOF'
+          from securesystemslib import keys
+          import json
+
+          # Generate key pair
+          key = keys.generate_rsa_key(bits=2048)
+
+          # Save private key
+          with open('in-toto-key', 'w') as f:
+              json.dump(key, f)
+
+          # Extract and save public key
+          public_key = {
+              'keyid': key['keyid'],
+              'keyid_hash_algorithms': key['keyid_hash_algorithms'],
+              'keyval': {'public': key['keyval']['public']},
+              'scheme': key['scheme']
+          }
+          with open('in-toto-key.pub', 'w') as f:
+              json.dump(public_key, f)
+
+          print(f"Key ID: {key['keyid']}")
+          PYEOF
+
+      # Update layout with generated key
+      - name: Update in-toto layout with key
+        run: |
+          python3 << 'PYEOF'
+          import json
+
+          # Read the public key
+          with open('in-toto-key.pub', 'r') as f:
+              pub_key = json.load(f)
+
+          # Read the layout
+          with open('in-toto-layout.json', 'r') as f:
+              layout = json.load(f)
+
+          # Add key to layout and update step pubkeys
+          layout['keys'] = {pub_key['keyid']: pub_key}
+          for step in layout['steps']:
+              step['pubkeys'] = [pub_key['keyid']]
+
+          # Write updated layout
+          with open('in-toto-layout.json', 'w') as f:
+              json.dump(layout, f, indent=2)
+
+          print("Layout updated with key:", pub_key['keyid'])
+          PYEOF
 
       # Generate in-toto link metadata for checkout step
       - name: Record checkout step
         run: |
           in-toto-run \
             --step-name checkout \
+            --signing-key in-toto-key \
             --products app.py Dockerfile requirements.txt .github/workflows/build-and-sign.yml \
             -- echo "Checkout complete"
 
@@ -89,6 +143,7 @@ jobs:
           echo "${DIGEST}" > image-digest.txt
           in-toto-run \
             --step-name build \
+            --signing-key in-toto-key \
             --materials app.py Dockerfile requirements.txt \
             --products image-digest.txt \
             -- echo "Build complete"
@@ -180,6 +235,7 @@ jobs:
         run: |
           in-toto-run \
             --step-name sign \
+            --signing-key in-toto-key \
             --materials image-digest.txt \
             --products signature-verified.txt \
             -- echo "Signing complete"
@@ -213,6 +269,7 @@ jobs:
           path: |
             *.link
             in-toto-layout.json
+            in-toto-key.pub
             image-digest.txt
             signature-verified.txt
 
