@@ -44,12 +44,13 @@ def update_layout_keys(layout_path: Path, public_key_path: Path) -> None:
     # Generate keyid (sha256 hash of public key)
     keyid = hashlib.sha256(pem_data).hexdigest()
 
-    # Create public key dict in securesystemslib format
+    # Create public key dict in securesystemslib format (v1.0+ format)
+    # The key dict must include the keyid field
     pub_key = {
         'keyid': keyid,
-        'keyid_hash_algorithms': ['sha256', 'sha512'],
-        'keyval': {'public': pem_str},
-        'scheme': 'rsa-pkcs1v15-sha256'
+        'keytype': 'rsa',
+        'scheme': 'rsassa-pss-sha256',
+        'keyval': {'public': pem_str}
     }
 
     # Load the layout
@@ -64,6 +65,7 @@ def update_layout_keys(layout_path: Path, public_key_path: Path) -> None:
         sys.exit(1)
 
     # Update layout with key information
+    # The keys dict maps keyid -> key_dict (which also contains keyid)
     layout['keys'] = {keyid: pub_key}
     for step in layout.get('steps', []):
         step['pubkeys'] = [keyid]

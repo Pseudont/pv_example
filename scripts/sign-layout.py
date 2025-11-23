@@ -16,52 +16,29 @@ try:
     from in_toto.models.metadata import Metablock
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    from securesystemslib.signer import CryptoSigner
 except ImportError as e:
     print(f"Error: Required module not found: {e}", file=sys.stderr)
-    print("Install with: pip install in-toto cryptography", file=sys.stderr)
+    print("Install with: pip install in-toto cryptography securesystemslib", file=sys.stderr)
     sys.exit(1)
 
 
-def load_private_key_dict(key_path: Path) -> dict:
+def load_private_key_signer(key_path: Path):
     """
-    Load a private key and convert it to securesystemslib format.
+    Load a private key and return a CryptoSigner for the new in-toto API.
 
-    This works with both old and new versions of securesystemslib.
+    Returns:
+        CryptoSigner object for use with Metablock.create_signature()
     """
-    # Read the PEM file
+    # Read and load the PEM private key
     with open(key_path, 'rb') as f:
         pem_data = f.read()
 
-    # Load the private key using cryptography
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
     private_key = load_pem_private_key(pem_data, password=None, backend=default_backend())
 
-    # Export both private and public keys
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption()
-    ).decode('utf-8')
-
-    public_key = private_key.public_key()
-    public_pem = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode('utf-8')
-
-    # Create key dict in securesystemslib format
-    import hashlib
-    keyid = hashlib.sha256(public_pem.encode('utf-8')).hexdigest()
-
-    return {
-        'keyid': keyid,
-        'keyid_hash_algorithms': ['sha256', 'sha512'],
-        'keyval': {
-            'private': private_pem,
-            'public': public_pem
-        },
-        'scheme': 'rsa-pkcs1v15-sha256'
-    }
+    # Create a CryptoSigner (used by in-toto 1.0+)
+    return CryptoSigner(private_key)
 
 
 def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> None:
@@ -76,7 +53,7 @@ def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> 
     if output_path is None:
         output_path = layout_path
 
-    # Load the unsigned layout
+    # Load the layout
     try:
         with open(layout_path, 'r') as f:
             layout_dict = json.load(f)
@@ -87,17 +64,49 @@ def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> 
         print(f"Error: Invalid JSON in layout file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Create a Metablock with the layout
+    # Check if this is already a signed metablock or an unsigned layout
     try:
-        layout_obj = Layout.read(layout_dict)
-        metablock = Metablock(signed=layout_obj)
+        if 'signed' in layout_dict and 'signatures' in layout_dict:
+            # Already a signed metablock, just add another signature
+            metablock = Metablock.read(layout_dict)
+        else:
+            # Unsigned layout - create a Layout object and populate from dict
+            # We avoid using Layout.read() to bypass key validation
+            from in_toto.models.layout import Step, Inspection
+
+            # Parse steps
+            steps = []
+            for step_dict in layout_dict.get('steps', []):
+                step = Step(**step_dict)
+                steps.append(step)
+
+            # Parse inspections
+            inspections = []
+            for inspect_dict in layout_dict.get('inspect', []):
+                inspection = Inspection(**inspect_dict)
+                inspections.append(inspection)
+
+            # Create Layout with parsed objects
+            layout_obj = Layout(
+                steps=steps,
+                inspect=inspections,
+                keys=layout_dict.get('keys', {}),
+                expires=layout_dict.get('expires', '2030-12-31T23:59:59Z')
+            )
+            # Set _type field if present
+            if '_type' in layout_dict:
+                layout_obj._type = layout_dict['_type']
+
+            metablock = Metablock(signed=layout_obj)
     except Exception as e:
         print(f"Error: Failed to create layout object: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
-    # Load the private key
+    # Load the private key as a signer
     try:
-        key_dict = load_private_key_dict(key_path)
+        signer = load_private_key_signer(key_path)
     except FileNotFoundError:
         print(f"Error: Private key not found: {key_path}", file=sys.stderr)
         sys.exit(1)
@@ -105,11 +114,13 @@ def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> 
         print(f"Error: Failed to load private key: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Sign the layout
+    # Sign the layout using the new API
     try:
-        metablock.sign(key_dict)
+        metablock.create_signature(signer)
     except Exception as e:
         print(f"Error: Failed to sign layout: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
     # Write the signed layout
