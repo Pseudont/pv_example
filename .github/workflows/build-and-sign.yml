@@ -30,33 +30,47 @@ jobs:
 
       # Install in-toto
       - name: Install in-toto
-        run: pip install in-toto securesystemslib
+        run: pip install in-toto securesystemslib cryptography
 
       # Generate in-toto signing key (ephemeral for PoC)
       - name: Generate in-toto key
         run: |
           python3 << 'PYEOF'
-          from securesystemslib import keys
+          from securesystemslib.signer import CryptoSigner
+          from cryptography.hazmat.primitives.asymmetric import rsa
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.backends import default_backend
           import json
 
-          # Generate key pair
-          key = keys.generate_rsa_key(bits=2048)
+          # Generate RSA key pair using cryptography
+          private_key = rsa.generate_private_key(
+              public_exponent=65537,
+              key_size=2048,
+              backend=default_backend()
+          )
 
-          # Save private key
-          with open('in-toto-key', 'w') as f:
-              json.dump(key, f)
+          # Serialize private key to PEM
+          pem_private = private_key.private_bytes(
+              encoding=serialization.Encoding.PEM,
+              format=serialization.PrivateFormat.TraditionalOpenSSL,
+              encryption_algorithm=serialization.NoEncryption()
+          )
 
-          # Extract and save public key
-          public_key = {
-              'keyid': key['keyid'],
-              'keyid_hash_algorithms': key['keyid_hash_algorithms'],
-              'keyval': {'public': key['keyval']['public']},
-              'scheme': key['scheme']
-          }
-          with open('in-toto-key.pub', 'w') as f:
-              json.dump(public_key, f)
+          # Serialize public key to PEM
+          public_key = private_key.public_key()
+          pem_public = public_key.public_bytes(
+              encoding=serialization.Encoding.PEM,
+              format=serialization.PublicFormat.SubjectPublicKeyInfo
+          )
 
-          print(f"Key ID: {key['keyid']}")
+          # Save keys in PEM format (in-toto can work with PEM)
+          with open('in-toto-key', 'wb') as f:
+              f.write(pem_private)
+
+          with open('in-toto-key.pub', 'wb') as f:
+              f.write(pem_public)
+
+          print("Generated RSA key pair")
           PYEOF
 
       # Update layout with generated key
@@ -64,25 +78,46 @@ jobs:
         run: |
           python3 << 'PYEOF'
           import json
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.backends import default_backend
+          import hashlib
 
-          # Read the public key
-          with open('in-toto-key.pub', 'r') as f:
-              pub_key = json.load(f)
+          # Read the public key PEM
+          with open('in-toto-key.pub', 'rb') as f:
+              pem_data = f.read()
+
+          # Load public key
+          from cryptography.hazmat.primitives.serialization import load_pem_public_key
+          pub_key_obj = load_pem_public_key(pem_data, backend=default_backend())
+
+          # Export to PEM format for keyid calculation
+          pem_str = pem_data.decode('utf-8')
+
+          # Generate keyid (sha256 hash of public key)
+          keyid = hashlib.sha256(pem_data).hexdigest()
+
+          # Create public key dict in securesystemslib format
+          pub_key = {
+              'keyid': keyid,
+              'keyid_hash_algorithms': ['sha256', 'sha512'],
+              'keyval': {'public': pem_str},
+              'scheme': 'rsa-pkcs1v15-sha256'
+          }
 
           # Read the layout
           with open('in-toto-layout.json', 'r') as f:
               layout = json.load(f)
 
           # Add key to layout and update step pubkeys
-          layout['keys'] = {pub_key['keyid']: pub_key}
+          layout['keys'] = {keyid: pub_key}
           for step in layout['steps']:
-              step['pubkeys'] = [pub_key['keyid']]
+              step['pubkeys'] = [keyid]
 
           # Write updated layout
           with open('in-toto-layout.json', 'w') as f:
               json.dump(layout, f, indent=2)
 
-          print("Layout updated with key:", pub_key['keyid'])
+          print("Layout updated with key:", keyid)
           PYEOF
 
       # Generate in-toto link metadata for checkout step
