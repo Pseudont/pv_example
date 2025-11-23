@@ -14,11 +14,54 @@ from pathlib import Path
 try:
     from in_toto.models.layout import Layout
     from in_toto.models.metadata import Metablock
-    from securesystemslib import interface
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.backends import default_backend
 except ImportError as e:
     print(f"Error: Required module not found: {e}", file=sys.stderr)
-    print("Install with: pip install in-toto securesystemslib", file=sys.stderr)
+    print("Install with: pip install in-toto cryptography", file=sys.stderr)
     sys.exit(1)
+
+
+def load_private_key_dict(key_path: Path) -> dict:
+    """
+    Load a private key and convert it to securesystemslib format.
+
+    This works with both old and new versions of securesystemslib.
+    """
+    # Read the PEM file
+    with open(key_path, 'rb') as f:
+        pem_data = f.read()
+
+    # Load the private key using cryptography
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    private_key = load_pem_private_key(pem_data, password=None, backend=default_backend())
+
+    # Export both private and public keys
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    ).decode('utf-8')
+
+    public_key = private_key.public_key()
+    public_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode('utf-8')
+
+    # Create key dict in securesystemslib format
+    import hashlib
+    keyid = hashlib.sha256(public_pem.encode('utf-8')).hexdigest()
+
+    return {
+        'keyid': keyid,
+        'keyid_hash_algorithms': ['sha256', 'sha512'],
+        'keyval': {
+            'private': private_pem,
+            'public': public_pem
+        },
+        'scheme': 'rsa-pkcs1v15-sha256'
+    }
 
 
 def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> None:
@@ -52,9 +95,9 @@ def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> 
         print(f"Error: Failed to create layout object: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Load and verify the private key
+    # Load the private key
     try:
-        key = interface.import_rsa_privatekey_from_file(str(key_path))
+        key_dict = load_private_key_dict(key_path)
     except FileNotFoundError:
         print(f"Error: Private key not found: {key_path}", file=sys.stderr)
         sys.exit(1)
@@ -64,7 +107,7 @@ def sign_layout(layout_path: Path, key_path: Path, output_path: Path = None) -> 
 
     # Sign the layout
     try:
-        metablock.sign(key)
+        metablock.sign(key_dict)
     except Exception as e:
         print(f"Error: Failed to sign layout: {e}", file=sys.stderr)
         sys.exit(1)
