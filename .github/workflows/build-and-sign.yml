@@ -63,11 +63,18 @@ jobs:
               format=serialization.PublicFormat.SubjectPublicKeyInfo
           )
 
-          # Save keys in PEM format (in-toto can work with PEM)
+          # Save keys in PEM format (use consistent naming with verify script)
           with open('in-toto-key', 'wb') as f:
               f.write(pem_private)
 
           with open('in-toto-key.pub', 'wb') as f:
+              f.write(pem_public)
+
+          # Also save as layout-owner-key for verify script compatibility
+          with open('layout-owner-key', 'wb') as f:
+              f.write(pem_private)
+
+          with open('layout-owner-key.pub', 'wb') as f:
               f.write(pem_public)
 
           print("Generated RSA key pair")
@@ -119,6 +126,12 @@ jobs:
 
           print("Layout updated with key:", keyid)
           PYEOF
+
+      # Sign the layout
+      - name: Sign in-toto layout
+        run: |
+          in-toto-sign -f in-toto-layout.json -k in-toto-key
+          echo "Layout signed successfully"
 
       # Generate in-toto link metadata for checkout step
       - name: Record checkout step
@@ -305,6 +318,7 @@ jobs:
             *.link
             in-toto-layout.json
             in-toto-key.pub
+            layout-owner-key.pub
             image-digest.txt
             signature-verified.txt
 

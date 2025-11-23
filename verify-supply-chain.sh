@@ -28,10 +28,19 @@ for step in "${REQUIRED_LINKS[@]}"; do
     fi
 done
 
+# Check if public key exists
+PUBLIC_KEY="layout-owner-key.pub"
+if [ ! -f "${PUBLIC_KEY}" ]; then
+    echo "Error: Public key ${PUBLIC_KEY} not found"
+    echo "Run ./setup-intoto-keys.sh to generate and sign the layout"
+    exit 1
+fi
+
 # Run in-toto verification
 echo "Verifying supply chain layout..."
 in-toto-verify \
     --layout in-toto-layout.json \
+    --layout-keys ${PUBLIC_KEY} \
     --link-dir ${LINKS_DIR}
 
 if [ $? -eq 0 ]; then

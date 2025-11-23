@@ -39,25 +39,50 @@ cosign verify-attestation ghcr.io/pseudont/pv_example:master \
 ```
 
 ### 2. in-toto Verification
+
+The in-toto layout must be signed to ensure its integrity. The workflow automatically generates ephemeral keys during CI/CD runs.
+
+For local verification:
 ```bash
-# Download link metadata from GitHub Actions artifacts
-# Then run verification script
+# Download link metadata and public key from GitHub Actions artifacts
+# Install in-toto
 pip install in-toto
+
+# Run verification script (requires layout-owner-key.pub)
 ./verify-supply-chain.sh
 ```
 
 The `in-toto-verify` tool checks that:
+- The layout signature is valid (using layout-owner-key.pub)
 - All required steps were executed
 - Each step used the correct input materials
 - Each step produced the expected output products
 - Steps were performed in the correct order
 
+#### Optional: Pre-generate Keys for Production
+
+For production deployments, generate and sign the layout beforehand:
+```bash
+# Install dependencies
+pip install in-toto cryptography
+
+# Generate keys and sign layout
+./setup-intoto-keys.sh
+
+# This creates:
+# - layout-owner-key (private - DO NOT COMMIT)
+# - layout-owner-key.pub (public - commit this)
+# - Signed in-toto-layout.json
+```
+
 ## Files
 
 - `in-toto-layout.json`: Supply chain policy definition
 - `verify-supply-chain.sh`: Automated verification script
+- `setup-intoto-keys.sh`: Script to generate keys and sign the layout
 - `.github/workflows/build-and-sign.yml`: CI/CD pipeline with in-toto integration
 - `CLAUDE.md`: Developer documentation
+- `.gitignore`: Prevents committing private keys
 
 ## Local Development
 

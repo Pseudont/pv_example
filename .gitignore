@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# in-toto private keys (NEVER commit these!)
+layout-owner-key
+in-toto-key
+layout-private-key.pem
+*.key
+
+# in-toto link metadata (generated during builds)
+*.link
+
+# Build artifacts
+image-digest.txt
+signature-verified.txt
+provenance.json
+
+# Backups
+*.bak
