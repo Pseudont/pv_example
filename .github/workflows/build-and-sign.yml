@@ -28,6 +28,18 @@ jobs:
       - name: Set image name
         run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
+      # Install in-toto
+      - name: Install in-toto
+        run: pip install in-toto
+
+      # Generate in-toto link metadata for checkout step
+      - name: Record checkout step
+        run: |
+          in-toto-run \
+            --step-name checkout \
+            --products app.py Dockerfile requirements.txt .github/workflows/build-and-sign.yml \
+            -- echo "Checkout complete"
+
       # Step 2: Set up Docker Buildx (for multi-platform builds)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -68,6 +80,18 @@ jobs:
           provenance: true
           # Enable SBOM attestation
           sbom: true
+
+      # Record build step in in-toto
+      - name: Record build step
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: |
+          echo "${DIGEST}" > image-digest.txt
+          in-toto-run \
+            --step-name build \
+            --materials app.py Dockerfile requirements.txt \
+            --products image-digest.txt \
+            -- echo "Build complete"
 
       # Step 6: Install Cosign
       - name: Install Cosign
@@ -147,8 +171,18 @@ jobs:
           cosign verify ${IMAGE} \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/*" \
             --certificate-oidc-issuer=https://token.actions.githubusercontent.com
-          
+
           echo "Signature verified successfully!"
+          echo "verified" > signature-verified.txt
+
+      # Record sign step in in-toto
+      - name: Record sign step
+        run: |
+          in-toto-run \
+            --step-name sign \
+            --materials image-digest.txt \
+            --products signature-verified.txt \
+            -- echo "Signing complete"
 
       # Step 10: Download and display provenance
       - name: Verify and display provenance
@@ -162,8 +196,25 @@ jobs:
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/*" \
             --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
             --type slsaprovenance | jq -r '.payload' | base64 -d | jq .
-          
+
           echo "Provenance verified successfully!"
+
+      # Verify in-toto supply chain
+      - name: Verify in-toto supply chain
+        run: |
+          chmod +x verify-supply-chain.sh
+          ./verify-supply-chain.sh
+
+      # Upload in-toto link metadata as artifacts
+      - name: Upload in-toto metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: in-toto-metadata
+          path: |
+            *.link
+            in-toto-layout.json
+            image-digest.txt
+            signature-verified.txt
 
   # Separate job: Deploy with verification
   deploy:

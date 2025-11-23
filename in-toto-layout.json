@@ -1,0 +1,60 @@
+{
+  "_type": "layout",
+  "steps": [
+    {
+      "name": "checkout",
+      "expected_materials": [],
+      "expected_products": [
+        ["CREATE", "app.py"],
+        ["CREATE", "Dockerfile"],
+        ["CREATE", "requirements.txt"],
+        ["ALLOW", ".github/workflows/build-and-sign.yml"]
+      ],
+      "pubkeys": [],
+      "expected_command": [],
+      "threshold": 1
+    },
+    {
+      "name": "build",
+      "expected_materials": [
+        ["MATCH", "app.py", "WITH", "PRODUCTS", "FROM", "checkout"],
+        ["MATCH", "Dockerfile", "WITH", "PRODUCTS", "FROM", "checkout"],
+        ["MATCH", "requirements.txt", "WITH", "PRODUCTS", "FROM", "checkout"]
+      ],
+      "expected_products": [
+        ["CREATE", "image-digest.txt"]
+      ],
+      "pubkeys": [],
+      "expected_command": [],
+      "threshold": 1
+    },
+    {
+      "name": "sign",
+      "expected_materials": [
+        ["MATCH", "image-digest.txt", "WITH", "PRODUCTS", "FROM", "build"]
+      ],
+      "expected_products": [
+        ["CREATE", "signature-verified.txt"]
+      ],
+      "pubkeys": [],
+      "expected_command": [],
+      "threshold": 1
+    }
+  ],
+  "inspect": [
+    {
+      "name": "verify-signature",
+      "expected_materials": [
+        ["MATCH", "signature-verified.txt", "WITH", "PRODUCTS", "FROM", "sign"]
+      ],
+      "expected_products": [],
+      "run": [
+        "test",
+        "-f",
+        "signature-verified.txt"
+      ]
+    }
+  ],
+  "keys": {},
+  "expires": "2030-12-31T23:59:59Z"
+}
