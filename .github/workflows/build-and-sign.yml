@@ -136,16 +136,23 @@ jobs:
         run: |
           echo "Running PortSwigger Dastardly DAST scan..."
 
+          # Create output directory
+          mkdir -p $(pwd)/dastardly-output
+
+          # Run Dastardly with proper user mapping to avoid permission issues
           docker run --rm \
+            --user $(id -u):$(id -g) \
             --network host \
-            -v $(pwd):/dastardly \
+            -v $(pwd)/dastardly-output:/dastardly \
             -e BURP_START_URL=http://localhost:8080 \
             -e BURP_REPORT_FILE_PATH=/dastardly/dastardly-report.xml \
             public.ecr.aws/portswigger/dastardly:latest || true
 
           # Check if critical vulnerabilities were found
-          if [ -f dastardly-report.xml ]; then
+          if [ -f dastardly-output/dastardly-report.xml ]; then
             echo "DAST scan completed. Report generated."
+            # Copy report to working directory for in-toto
+            cp dastardly-output/dastardly-report.xml dastardly-report.xml
             echo "scan-complete" > dast-scan-complete.txt
           else
             echo "Warning: DAST report not generated"

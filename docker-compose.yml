@@ -11,6 +11,7 @@ services:
 
   dastardly:
     image: public.ecr.aws/portswigger/dastardly:latest
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       - BURP_START_URL=http://app:8080
       - BURP_REPORT_FILE_PATH=/dastardly/dastardly-report.xml
