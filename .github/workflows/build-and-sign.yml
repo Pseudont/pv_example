@@ -140,24 +140,24 @@ jobs:
           mkdir -p $(pwd)/dastardly-output
 
           # Run Dastardly with proper user mapping to avoid permission issues
+          # Note: Dastardly will exit with non-zero code if it finds vulnerabilities
+          # This acts as a security gate - the build will fail if issues are found
           docker run --rm \
             --user $(id -u):$(id -g) \
             --network host \
             -v $(pwd)/dastardly-output:/dastardly \
             -e BURP_START_URL=http://localhost:8080 \
             -e BURP_REPORT_FILE_PATH=/dastardly/dastardly-report.xml \
-            public.ecr.aws/portswigger/dastardly:latest || true
+            public.ecr.aws/portswigger/dastardly:latest
 
-          # Check if critical vulnerabilities were found
+          # If we reach here, no vulnerabilities were found (or only INFO level)
+          echo "DAST scan passed! No significant vulnerabilities found."
+
+          # Copy report to working directory for in-toto
           if [ -f dastardly-output/dastardly-report.xml ]; then
-            echo "DAST scan completed. Report generated."
-            # Copy report to working directory for in-toto
             cp dastardly-output/dastardly-report.xml dastardly-report.xml
-            echo "scan-complete" > dast-scan-complete.txt
-          else
-            echo "Warning: DAST report not generated"
-            echo "scan-complete" > dast-scan-complete.txt
           fi
+          echo "scan-complete" > dast-scan-complete.txt
 
       - name: Stop DAST target container
         if: always()
