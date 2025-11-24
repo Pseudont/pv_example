@@ -140,8 +140,8 @@ jobs:
           mkdir -p $(pwd)/dastardly-output
 
           # Run Dastardly with proper user mapping to avoid permission issues
-          # Note: Dastardly will exit with non-zero code if it finds vulnerabilities
-          # This acts as a security gate - the build will fail if issues are found
+          # Capture exit code to process report before failing
+          set +e
           docker run --rm \
             --user $(id -u):$(id -g) \
             --network host \
@@ -149,14 +149,24 @@ jobs:
             -e BURP_START_URL=http://localhost:8080 \
             -e BURP_REPORT_FILE_PATH=/dastardly/dastardly-report.xml \
             public.ecr.aws/portswigger/dastardly:latest
+          DAST_EXIT_CODE=$?
+          set -e
 
-          # If we reach here, no vulnerabilities were found (or only INFO level)
-          echo "DAST scan passed! No significant vulnerabilities found."
-
-          # Copy report to working directory for in-toto
+          # Copy report to working directory for artifacts and in-toto (even if scan failed)
           if [ -f dastardly-output/dastardly-report.xml ]; then
             cp dastardly-output/dastardly-report.xml dastardly-report.xml
+            echo "DAST report generated and copied."
           fi
+
+          # Check exit code and fail if vulnerabilities were found
+          if [ $DAST_EXIT_CODE -ne 0 ]; then
+            echo "DAST scan FAILED. Vulnerabilities detected (exit code: $DAST_EXIT_CODE)"
+            echo "Security gate activated - blocking build from proceeding to signing."
+            echo "Review the DAST report artifact for details."
+            exit $DAST_EXIT_CODE
+          fi
+
+          echo "DAST scan passed. No significant vulnerabilities found."
           echo "scan-complete" > dast-scan-complete.txt
 
       - name: Stop DAST target container
