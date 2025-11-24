@@ -29,6 +29,19 @@
       "threshold": 1
     },
     {
+      "name": "dast-scan",
+      "expected_materials": [
+        ["MATCH", "image-digest.txt", "WITH", "PRODUCTS", "FROM", "build"]
+      ],
+      "expected_products": [
+        ["CREATE", "dast-scan-complete.txt"],
+        ["CREATE", "dastardly-report.xml"]
+      ],
+      "pubkeys": [],
+      "expected_command": [],
+      "threshold": 1
+    },
+    {
       "name": "sign",
       "expected_materials": [
         ["MATCH", "image-digest.txt", "WITH", "PRODUCTS", "FROM", "build"]

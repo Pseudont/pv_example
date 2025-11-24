@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    container_name: pv_example_app
+    networks:
+      - dast-network
+
+  dastardly:
+    image: public.ecr.aws/portswigger/dastardly:latest
+    environment:
+      - BURP_START_URL=http://app:8080
+      - BURP_REPORT_FILE_PATH=/dastardly/dastardly-report.xml
+    volumes:
+      - ./dastardly-output:/dastardly
+    depends_on:
+      - app
+    networks:
+      - dast-network
+
+networks:
+  dast-network:
+    driver: bridge
